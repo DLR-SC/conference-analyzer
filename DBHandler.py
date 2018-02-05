@@ -1,7 +1,7 @@
 from neo4j.v1 import GraphDatabase
-from DataModels import Conference, Talk, Topic, Conference_Series
+import DataModels
 
-class insertData(object):
+class insert_data(object):
 
     def __init__(self, uri, user, password):
         self._driver = GraphDatabase.driver(uri, auth=(user, password))

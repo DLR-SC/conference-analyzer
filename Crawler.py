@@ -1,80 +1,56 @@
-from bs4 import BeautifulSoup, element
+from bs4 import BeautifulSoup
 from googletrans import Translator
 import urllib.request
 from urllib.parse import urljoin, urlsplit, urlparse
 import datetime
 import lxml
-import multiprocessing
-from multiprocessing import pool
+from multiprocessing import Pool
 import inspect
 import os.path
 import re
-import parseTable
-import DataModels
-class Utilities(object):
-    def check_language_of_string(str, translator):
-        return translator.detect(i.string).lang
-    def check_language_for_series_of_strings(strings, n, translator):
-        strings = strings[:n]
-        if all(string == string[0] for string in strings): return check_language_of_string(strings[0])
-    def check_website_for_language(soup, translator, n=5, tags={'span', 'h2', 'h3', 'a', 'b', 'p'}):
-        return check_language_for_series_of_strings(soup.find_all(tags), n, translator)
-    def get_location_dict(path="data/iso_codes.csv"):
-        locations = dict()
-        with open(path, "r") as f:
-            for line in f:
-                locations[line.split(",")[1]] = line.split(",")[0]
-            return locations
-    def get_net_dir(link):
-        return urlparse(link).netloc
-    @staticmethod
-    def getLocationShortcut(string, locations):
-        for shortcut in locations:
-            if (shortcut.lower().strip() == string.lower()): 
-                return shortcut
-    @staticmethod
-    def getLocation(link, locations):
-        locs = list()
-        [locs.append(Utilities.getLocationShortcut(string, Utilities.get_location_dict())) for string in Utilities.get_net_dir(link).split(".")]
-        locs = filter(None, locs)
-        return "".join(locs)
-    def getRelocatedLink(link):
-        headers = {'User-Agent' : 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:52.0) Gecko/20100101 Firefox/52.0'}
-        request = urllib.request.Request(link, None, headers)
-        return urllib.request.urlopen(request).geturl()
-
-def getSoup(link, parser='lxml'):
-    '''Gets a website by a Link and returns it as a BeautifulSoup object
-    Parameters
-    ----------
-    link : str
-        Link to the Site
-    parser : str
-        Which parser to use (Default 'lxml' for html)
-    '''
-    try:
+import DataModels, DBHandler, parseTable
+from itertools import product
+def get_translator():
+    return Translator()
+def check_language_of_string(string, translator):
+    return translator.detect(string).lang
+def check_language_for_series_of_strings(strings, n, translator):
+    strings = strings[:n]
+    if all(string == strings[0] for string in strings): return check_language_of_string(strings[0], translator)
+def check_website_for_language(soup, translator, n=5, tags={'span', 'h2', 'h3', 'a', 'b', 'p'}):
+    return check_language_for_series_of_strings(soup.find_all(tags), n, translator)
+def get_location_dict(path="data/iso_codes.csv"):
+    locations = dict()
+    with open(path, "r") as f:
+        for line in f:
+            locations[line.split(",")[1]] = line.split(",")[0]
+        return locations
+def get_net_dir(link):
+    return urlparse(link).netloc
+def get_location_shortcut(string, locations):
+    for shortcut in locations:
+        if (shortcut.lower().strip() == string.lower()): 
+            return shortcut
+def getLocation(link, locations):
+    locs = list()
+    [locs.append(get_location_shortcut(string, get_location_dict())) for string in get_net_dir(link).split(".")]
+    locs = filter(None, locs)
+    return "".join(locs)
+def getRelocatedLink(link):
+    headers = {'User-Agent' : 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:52.0) Gecko/20100101 Firefox/52.0'}
+    request = urllib.request.Request(link, None, headers)
+    return urllib.request.urlopen(request).geturl()
+def get_soup_for_link(link, parser='lxml'):
         if(link is not None) and (type(link) is str):
             headers = {'User-Agent' : 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:52.0) Gecko/20100101 Firefox/52.0'}
             request = urllib.request.Request(link, None, headers)
-            response = urllib.request.urlopen(request)
-            return BeautifulSoup(response.read(), parser)
-        else:
-            raise Exception('Be sure to check if Link is Empty or not a string \n Link: '+str(link))
-    except (urllib.error.URLError, UnicodeError) as e:
-        print(e)
-        print("at "+link)
-        return False
+            return BeautifulSoup(urllib.request.urlopen(request).read(), parser)
 
-
-def getEnglishVersion(soup, link):
-    '''Searches a given Website for a link for a possible English instance of the Site. If nothing is found the original link is returned.
-    Parameters
-    ----------
-    soup : BeautifulSoup
-        BeautifulSoup object of the given site
-    link : str
-        Link to the Site
-    '''
+def search_website_for_date(link, tags={'span', 'h2', 'h3', 'a', 'b', 'p'}):
+    for tag in get_soup_for_link(link).find_all(tags):
+        if(tag.string is not None) and (re.search("\d{4}", tag.string) is not None):
+            return re.search("\d{4}", tag.string).group(0)
+def search_website_for_english_version(soup, link): 
     for i in soup.find_all('a'):
         if(i.string is not None):
             if(i.string.lower() == 'english') or (i.string.lower() == 'en'):
@@ -83,18 +59,10 @@ def getEnglishVersion(soup, link):
                 link = getRelocatedLink(link).replace("\n", "")
                 if(not link.endswith("/")):
                     link = link+"/"
-                return link+"/".join(href)
-    return link
+                return get_soup_for_link(link+"/".join(href))
+    return get_soup_for_link(link)
 #Saves a value to a file at path
 def rememberValue(value, path='data/sym.csv'):
-    '''Add value to a File in the following scheme: "value,"
-    Parameters
-    ----------
-    value : str
-        The value to be added to the File
-    path : str
-        Path of the File to be saved to (Default is 'data/sym.csv')
-    '''
     try:
         f = open(path, "r+")
     except (IOError, OSError) as e:
@@ -110,16 +78,7 @@ def rememberValue(value, path='data/sym.csv'):
         f.write(value.lower()+",")
     else:
         raise Exception('Value or File is None')
-        return False
 def rememberValues(values, path):
-    '''Like rememberValue but for lists
-    Parameters
-    ----------
-    values : list
-        The values to be added to the File
-    path : str
-        Path of the File to be saved to (Default is 'data/sym.csv')
-    '''
     try:
         with open(path, "a+") as f:
             f.seek(0, os.SEEK_SET)
@@ -132,17 +91,7 @@ def rememberValues(values, path):
         print(inspect.currentframe().f_code.co_name+"////"+e)
         return False
 
-def getOlderVersion(soup, link, years = 1):
-    '''Searches a given site for an older instance
-    Parameters
-    ----------
-    soup = BeautifulSoup
-        BeautifulSoup object of the given site
-    link : str
-        The Link to the Site
-    years : int
-        How many years you want to go back in time
-    '''
+def get_older_version(soup, link, years = 1):
     if(years > 1):
         soups = list()
     now = datetime.datetime.now()
@@ -180,65 +129,42 @@ def getOlderVersion(soup, link, years = 1):
             return False
     return False
 
+def get_search_words(soup, link, translator, language="en", path="data/en.csv"):
+    with open(path, "r+") as f:
+        fileWords = f.read().split(",")
+        search_terms = list()
+        if(language != "en"):
+            for word in fileWords:
+                search_terms.append(word)
+                search_terms.append(translator.translate(text=word, dest=language).text)
+        else:
+            search_terms = fileWords
+        return search_terms
+def get_not_empty_a_tags(soup):
+    valid_tags = list()
+    for tag in soup.find_all('a'):
+        if(tag.string is not None) and (tag.get('href')):   valid_tags.append(tag)
+    return valid_tags
+
+def check_if_tag_contains_schedule_link(tag, search_terms):
+    for search_term in search_terms:
+        if(search_term in tag.string) or (search_term in tag.get('href')):
+            return True
 
 def getSchedule(link, translator = Translator(), language='en'):
-    '''Searches a given site for a schedule/program
-    Parameters
-    ----------
-    link : str
-        The Link to the Site
-    translator : Translator
-        googltrans API object required to detect and switch languages. (Default is Translator())
-    language : str
-        The language of the site. Pass shortcuts here. e.g. English -> en (Default is en)
-    '''
-    soup = getSoup(link)
-    original_link = link
-    language = identLanguage(soup, translator)
-    f = open("data/en.csv", "r")
+    soup = get_soup_for_link(link)
+    language = check_website_for_language(soup, translator)
     if(language != 'en'):
-        link = getEnglishVersion(soup, link)
-        if(link is not None) and (link != original_link):
-            soup = getSoup(link)
-            language = 'en'
-    fileWords = f.read().split(",")
-    fileWords.remove(fileWords[len(fileWords)-1])
-    search_terms = list()
-    if(language != "en"):
-        for word in fileWords:
-            search_terms.append(word)
-            try:
-                search_terms.append(translator.translate(text=word, dest=language).text)
-            except AttributeError as e:
-                print(inspect.currentframe().f_code.co_name)
-                print(e)
+        soup = search_website_for_english_version(soup, link)
+    language = check_website_for_language(soup, translator)
+    search_terms = get_search_words(soup, link, translator)
+    for tag in get_not_empty_a_tags(soup):
+        if(check_if_tag_contains_schedule_link(tag, search_terms)):
+            return urljoin(link, tag.get('href'))
     else:
-        search_terms = fileWords
-    try:
-        for a_tag in soup.find_all('a'):
-            if(a_tag.string is not None) and (a_tag.get('href') is not None):
-                for search_term in search_terms:
-                    if(search_term in a_tag.string.lower()) and ('tutorial' not in a_tag.string.lower()) and ("#top" not in a_tag.get('href')):
-                        href_array = a_tag.get('href').split("/")
-                        if(href_array[len(href_array)-1] != "#"):
-                            rememberValue(href_array[len(href_array)-1], "data/en.csv")
-                        return urljoin(link, a_tag.get('href'))
-                for search_term in search_terms:
-                    if(search_term in a_tag.get('href').lower()) and ("tutorial" not in a_tag.get('href').lower()):
-                        if(a_tag.string != "#"):
-                            rememberValue(a_tag.string, "data/en.csv")
-                        return urljoin(link, a_tag.get('href'))
-    except AttributeError as e:
-        print(inspect.currentframe().f_code.co_name)
-        print(e)
-    o = getOlderVersion(soup, link)
-    if(type(o) is str):
-        return getSchedule(o, translator)
-
-
-
-    
-
+        older_link = get_older_version(soup, link)
+        if(type(older_link) is str):
+            return getSchedule(older_link, translator)
 '''translator = Translator()
 urls = open("urls.txt", "r")'''
 def test(a):
@@ -247,14 +173,11 @@ def test(a):
     if(schedule is None):
         schedule = ""
     return a.replace("\n", "")+"####"+schedule.replace("\n", "")
-    rememberValues([a.replace("\n", ""), schedule.strip()], "data/schedules.csv")
 def part_of_series(name):
     words = name.split()
-    try:
-        words.remove(getLocationShortcut(name))
-    except ValueError as e:
-        print(e)
-    words.remove(re.search("\d{4}", name).group(0))
+    for word in words:
+        if (word == get_location_shortcut(name, get_location_dict())) or (re.search("\d{4}", name) is not None):
+            words.remove(word)
     with open("data/conferences.csv", "a+") as f:
         for line in f:
             if(line == "".join(words)):
@@ -262,28 +185,29 @@ def part_of_series(name):
         else:
             f.write("".join(words)+"\n")
             return False, "".join(words)
-def scrape_and_insert_data(title, link, db, titles):
-    c = DataModels.Conference()
-    c.extract_conference_informations(link)
-    partOf, csName = part_of_series(c.name)
-    if(partOf):
-        cs = Conference_Series(c.name, 1)
-    else: cs = False
-    person_name = tit
-    db.insert_data(person_name, c, cs, Talk.extract_information_from_title(topic[title]), to)
-    print("="*30)
-    return True
+
 def multiprocessing_test(titles, link, insertData):
-    poola = pool.Pool(processes=4)
+    poola = Pool(processes=4)
     for title in titles:
-        thread = poola.apply_async(scrape_and_insert_data, args=(title, link, insertData, titles))
+        poola.apply_async(scrape_and_insert_data, args=(title, link, insertData, titles))
         print("Thread Openend")
     poola.close()
     poola.join()
 
-
+def scrape_and_insert_data(title, link, db, titles):
+    print("bitte")
+    c = DataModels.Conference()
+    c.extract_conference_informations(link)
+    partOf, conference_series_name = part_of_series(c.name)
+    if(partOf):
+        cs = DataModels.Conference_Series(conference_series_name, 1)
+    else: cs = False
+    person_name = title
+    to = DataModels.Topic("", "en")
+    db.insert_data(person_name, c, cs, DataModels.Talk().extract_information_from_title(title), to)
 if __name__ == "__main__":
-    insertData = insertData("bolt://127.0.0.1:7687", "neo4j", "Gjekgi75")
+    insertData = DBHandler.insert_data("bolt://127.0.0.1:7687", "neo4j", "Gjekgi75")
     link = "http://de.pycon.org/"
     topic = parseTable.TableParser(getSchedule(link)).parse()
+    #scrape_and_insert_data(topic['Alex Conway'], link, insertData, topic)
     multiprocessing_test(topic, link, insertData)
