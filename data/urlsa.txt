@@ -1,0 +1,14 @@
+https://2017.pycon-au.org
+http://2017.pythonbrasil.org.br/
+https://de.pycon.org/
+http://us.pycon.org/2017
+http://www.europython.eu
+http://www.euroscipy.org/2017
+http://nz.pycon.org
+http://www.pythonbrasil.org.br
+http://pyconcameroon.org/
+http://www.pycon.ca
+http://cz.pycon.org
+http://pycon.dk
+http://es.pycon.org
+http://fr.pycon.org
